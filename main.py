@@ -288,6 +288,8 @@ if st.session_state.show_results and st.session_state.projects:
                         study_period=study_period,
                         marr=marr,
                         results_df=results_df,
+                        project_list=st.session_state.projects,
+                        detailed_flows=detailed_flows,
                         chart_image_path=tmp_img_path
                     )
                     
