@@ -99,7 +99,7 @@ with st.sidebar:
     marr = st.number_input("MARR (%)", min_value=0.0, value=10.0, step=0.5)
     
     st.divider()
-    if st.button("Clear All Projects"):
+    if st.button("🗑️ Clear All Projects"):
         st.session_state.projects = []
         st.session_state.show_results = False
         st.rerun()
@@ -107,11 +107,12 @@ with st.sidebar:
 st.title("Industrial Economics Project Analyzer")
 
 # -----------------------------------------------------------------------------
-# 1. INPUT SECTION
+# 1. INPUT & PROJECT MANAGEMENT
 # -----------------------------------------------------------------------------
-st.markdown("### 1. Add Projects")
-st.markdown("Add projects one by one below. Once you have added all candidates, click 'Calculate Analysis'.")
+st.markdown("### 1. Project Management")
+st.caption("Add projects to the candidate list.")
 
+# Form to add
 with st.form("add_project_form", clear_on_submit=True):
     col1, col2, col3, col4 = st.columns(4)
     
@@ -131,7 +132,7 @@ with st.form("add_project_form", clear_on_submit=True):
         p_cost = st.number_input("Annual Op. Cost ($)", min_value=0.0, value=5000.0, step=500.0)
         p_savings = st.number_input("Annual Savings ($)", min_value=0.0, value=0.0, step=500.0)
 
-    submitted = st.form_submit_button("➕ Add Project to List")
+    submitted = st.form_submit_button("➕ Add Project")
     
     if submitted:
         new_project = {
@@ -145,17 +146,15 @@ with st.form("add_project_form", clear_on_submit=True):
             "Annual Savings": float(p_savings)
         }
         st.session_state.projects.append(new_project)
-        st.session_state.show_results = False # Reset results if new data added
-        st.toast(f"Added {p_name}!")
+        st.session_state.show_results = False 
+        st.rerun()
 
-# -----------------------------------------------------------------------------
-# 2. PROJECT LIST & ACTIONS
-# -----------------------------------------------------------------------------
+# List & Delete
 if st.session_state.projects:
     st.divider()
-    st.markdown(f"### 2. Project List ({len(st.session_state.projects)} candidates)")
+    st.markdown(f"**Current Candidates ({len(st.session_state.projects)})**")
     
-    # Display simple table of added projects
+    # Show list
     display_df = pd.DataFrame(st.session_state.projects)
     st.dataframe(
         display_df, 
@@ -166,79 +165,145 @@ if st.session_state.projects:
         }
     )
     
+    # Delete Functionality
+    col_d1, col_d2 = st.columns([3, 1])
+    with col_d1:
+        project_names = [p['Project Name'] for p in st.session_state.projects]
+        to_delete = st.selectbox("Select project to remove:", ["Select..."] + project_names, label_visibility="collapsed")
+    with col_d2:
+        if st.button("Delete Selected"):
+            if to_delete and to_delete != "Select...":
+                st.session_state.projects = [p for p in st.session_state.projects if p['Project Name'] != to_delete]
+                st.session_state.show_results = False
+                st.rerun()
+
     if st.button("🚀 Calculate Analysis", type="primary"):
         st.session_state.show_results = True
+
+# -----------------------------------------------------------------------------
+# 2. MATHEMATICAL FORMULATION
+# -----------------------------------------------------------------------------
+st.divider()
+st.markdown("### 2. Mathematical Framework")
+st.markdown("The analysis uses the **LCM Method** to compare projects with unequal lives over a common study period.")
+
+mf_col1, mf_col2 = st.columns(2)
+
+with mf_col1:
+    st.info("**Net Present Value (NPV)**")
+    st.latex(r"NPV = \sum_{t=0}^{N} \frac{CF_t}{(1 + i)^t}")
+    st.markdown(f"""
+    * **$N$**: Study Period (LCM of all life spans)
+    * **$i$**: MARR ({marr}%)
+    * **$CF_t$**: Net Cash Flow at year $t$
+    """)
+
+with mf_col2:
+    st.info("**Annual Cash Flow Logic**")
+    st.latex(r"CF_t = (R - C + S_{av}) + S_{al} - Rep")
+    st.markdown("""
+    * **$R$**: Revenue, **$C$**: Op. Cost, **$S_{av}$**: Savings
+    * **$S_{al}$**: Salvage Value (added at end of life cycle)
+    * **$Rep$**: Replacement Cost (subtracted at end of life cycle, if not end of study)
+    """)
 
 # -----------------------------------------------------------------------------
 # 3. ANALYSIS RESULTS
 # -----------------------------------------------------------------------------
 if st.session_state.show_results and st.session_state.projects:
+    st.divider()
+    
     # Run Analysis (Cached)
     study_period, results_df, detailed_flows, winner = run_full_analysis(st.session_state.projects, marr)
     
     if study_period > 0 and winner is not None:
-        st.divider()
         st.markdown("### 3. Analysis Results")
 
         # Winner Card
         st.markdown(f"""
         <div class="rec-card">
-            <h3 class="rec-title">Recommendation: {winner['Project Name']}</h3>
+            <h3 class="rec-title">🏆 Recommendation: {winner['Project Name']}</h3>
             <div class="rec-metric">${winner['NPV']:,.2f}</div>
-            <p>Highest NPV over {study_period} years at {marr}% MARR.</p>
+            <p>Highest NPV over the <b>{study_period}-year</b> common study period.</p>
         </div>
         """, unsafe_allow_html=True)
 
-        # Generate Chart (On the fly)
-        winner_flows = detailed_flows[winner['Project Name']]
-        fig, ax = plt.subplots(figsize=(8, 4), facecolor='white')
-        colors = ['#4682B4' if x >= 0 else '#800000' for x in winner_flows]
-        ax.bar(range(len(winner_flows)), winner_flows, color=colors)
-        ax.set_title(f"Cash Flow: {winner['Project Name']}")
-        ax.spines['top'].set_visible(False)
-        ax.spines['right'].set_visible(False)
+        st.markdown("#### Cash Flow Comparison")
+        st.caption("Visualizing the cash flow streams for all candidates.")
+
+        # --- ALL CHARTS COMPARISON ---
+        # We'll display them in a grid (2 columns)
+        chart_cols = st.columns(2)
         
-        col1, col2 = st.columns(2)
+        for idx, (p_name, flows) in enumerate(detailed_flows.items()):
+            # Determine which column to place chart in
+            with chart_cols[idx % 2]:
+                is_winner = (p_name == winner['Project Name'])
+                border_color = '#27ae60' if is_winner else '#bdc3c7'
+                bg_color = '#f0fff4' if is_winner else '#ffffff'
+                
+                # Plot
+                fig, ax = plt.subplots(figsize=(6, 3), facecolor=bg_color)
+                colors = ['#4682B4' if x >= 0 else '#C0392B' for x in flows]
+                ax.bar(range(len(flows)), flows, color=colors)
+                ax.axhline(0, color='black', linewidth=0.8)
+                
+                # Styling
+                title_prefix = "🏆 WINNER: " if is_winner else ""
+                ax.set_title(f"{title_prefix}{p_name}", fontsize=10, fontweight='bold', color='black')
+                ax.spines['top'].set_visible(False)
+                ax.spines['right'].set_visible(False)
+                ax.spines['left'].set_visible(False)
+                ax.spines['bottom'].set_visible(False)
+                ax.get_yaxis().set_visible(False) # Hide Y axis values to reduce clutter
+                ax.set_facecolor(bg_color)
+                
+                st.pyplot(fig)
+                
+        st.divider()
+
+        # --- TABLE & PDF ---
+        col1, col2 = st.columns([2, 1])
         with col1:
-            st.markdown("**Comparison Table**")
-            st.dataframe(results_df.style.format({"NPV": "${:,.2f}"}), use_container_width=True)
+            st.markdown("#### Comparison Table")
+            st.dataframe(results_df.style.format({"NPV": "${:,.2f}"}).highlight_max(subset=["NPV"], color="#d4edda"), use_container_width=True)
+            
         with col2:
-            st.pyplot(fig)
+            st.markdown("#### Export Report")
+            if st.button("Generate PDF Report", type="primary", use_container_width=True):
+                try:
+                    # Generate temp image of just the winner for the PDF
+                    winner_flows = detailed_flows[winner['Project Name']]
+                    fig, ax = plt.subplots(figsize=(8, 4), facecolor='white')
+                    colors = ['#4682B4' if x >= 0 else '#800000' for x in winner_flows]
+                    ax.bar(range(len(winner_flows)), winner_flows, color=colors)
+                    ax.set_title(f"Cash Flow: {winner['Project Name']}")
+                    with tempfile.NamedTemporaryFile(delete=False, suffix=".png") as tmp_img:
+                        fig.savefig(tmp_img.name, dpi=300, bbox_inches='tight')
+                        tmp_img_path = tmp_img.name
+                    
+                    pdf_bytes = reports.create_pdf_bytes(
+                        winner_name=winner['Project Name'],
+                        winner_npv=winner['NPV'],
+                        study_period=study_period,
+                        marr=marr,
+                        results_df=results_df,
+                        chart_image_path=tmp_img_path
+                    )
+                    
+                    if os.path.exists(tmp_img_path): os.remove(tmp_img_path)
 
-        # PDF Generation
-        if st.button("Generate PDF Report"):
-            try:
-                # 1. Save temp image
-                with tempfile.NamedTemporaryFile(delete=False, suffix=".png") as tmp_img:
-                    fig.savefig(tmp_img.name, dpi=300, bbox_inches='tight')
-                    tmp_img_path = tmp_img.name
-                
-                # 2. Generate PDF using report module
-                pdf_bytes = reports.create_pdf_bytes(
-                    winner_name=winner['Project Name'],
-                    winner_npv=winner['NPV'],
-                    study_period=study_period,
-                    marr=marr,
-                    results_df=results_df,
-                    chart_image_path=tmp_img_path
-                )
-                
-                # 3. Cleanup temp image
-                if os.path.exists(tmp_img_path):
-                    os.remove(tmp_img_path)
-
-                # 4. Download
-                st.download_button(
-                    label="Download PDF",
-                    data=pdf_bytes,
-                    file_name="econ_report.pdf",
-                    mime="application/pdf"
-                )
-            except Exception as e:
-                st.error(f"Error generating PDF: {e}")
+                    st.download_button(
+                        label="⬇️ Download PDF",
+                        data=pdf_bytes,
+                        file_name="econ_report.pdf",
+                        mime="application/pdf",
+                        use_container_width=True
+                    )
+                except Exception as e:
+                    st.error(f"Error generating PDF: {e}")
 
         # Detailed Matrix
-        st.divider()
-        st.markdown("### Detailed Matrix")
-        matrix_df = pd.DataFrame(detailed_flows)
-        st.table(matrix_df.style.format("${:,.0f}"))
+        with st.expander("View Detailed Year-by-Year Matrix", expanded=False):
+            matrix_df = pd.DataFrame(detailed_flows)
+            st.table(matrix_df.style.format("${:,.0f}"))
