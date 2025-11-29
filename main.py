@@ -307,3 +307,62 @@ if st.session_state.show_results and st.session_state.projects:
         with st.expander("View Detailed Year-by-Year Matrix", expanded=False):
             matrix_df = pd.DataFrame(detailed_flows)
             st.table(matrix_df.style.format("${:,.0f}"))
+
+        # --- NEW SECTION: STEP BY STEP CALCULATION ---
+        st.divider()
+        st.markdown("### 4. Step-by-Step Math Calculations")
+        st.caption(f"Showing how the NPV was derived for each project over the {study_period}-year study period.")
+
+        for p_name, flows in detailed_flows.items():
+            # Get project inputs safely
+            proj_data = next(p for p in st.session_state.projects if p["Project Name"] == p_name)
+            
+            with st.expander(f"🧮 See Calculations for: {p_name}"):
+                
+                # 1. Net Annual Flow
+                net_annual = proj_data['Annual Revenue'] - proj_data['Annual Op. Cost'] + proj_data['Annual Savings']
+                st.markdown("**1. Calculate Net Annual Flow:**")
+                st.latex(r"Net = \text{Revenue} - \text{Cost} + \text{Savings}")
+                st.latex(f"Net = {proj_data['Annual Revenue']:,.0f} - {proj_data['Annual Op. Cost']:,.0f} + {proj_data['Annual Savings']:,.0f} = \mathbf{{\${net_annual:,.0f}}}")
+
+                # 2. Key Timeline Events
+                st.markdown("**2. Timeline Events:**")
+                st.markdown(f"""
+                * **Year 0:** Initial Investment = $\mathbf{{-{proj_data['Initial Investment']:,.0f}}}$
+                * **Every Year:** Net Annual Flow = $\mathbf{{+{net_annual:,.0f}}}$
+                * **Every {proj_data['Life Span (Years)']} Years:** Add Salvage ($\mathbf{{+{proj_data['Salvage Value']:,.0f}}}$) and Subtract Replacement Cost ($\mathbf{{-{proj_data['Replacement Cost']:,.0f}}}$)
+                """)
+
+                # 3. NPV Equation Construction
+                st.markdown("**3. NPV Summation:**")
+                
+                # Build the equation string dynamically
+                terms = []
+                # Year 0
+                terms.append(f"-{proj_data['Initial Investment']:,.0f}")
+                
+                # Show first 3 years
+                limit = min(3, len(flows)-1)
+                for t in range(1, limit + 1):
+                    # Format as fraction
+                    terms.append(f"\\frac{{{flows[t]:,.0f}}}{{(1 + {marr/100})^{{{t}}}}}")
+                
+                # If study period is long, add dots and then the last term
+                if len(flows) > 5:
+                    terms.append("...")
+                    last_t = len(flows) - 1
+                    terms.append(f"\\frac{{{flows[last_t]:,.0f}}}{{(1 + {marr/100})^{{{last_t}}}}}")
+                elif len(flows) > limit:
+                     for t in range(limit + 1, len(flows)):
+                        terms.append(f"\\frac{{{flows[t]:,.0f}}}{{(1 + {marr/100})^{{{t}}}}}")
+
+                # Join terms with + sign
+                latex_eq = " + ".join(terms)
+                # Clean up double signs (e.g. "+ -")
+                latex_eq = latex_eq.replace("+ -", "- ")
+                
+                st.latex(f"NPV = {latex_eq}")
+                
+                # Final Result
+                final_npv = next(r['NPV'] for r in results_df.to_dict('records') if r['Project Name'] == p_name)
+                st.markdown(f"**Result:** $NPV = \mathbf{{\${final_npv:,.2f}}}$")
